@@ -6,7 +6,7 @@ const FALLBACK = [
     flags: { png: "https://flagcdn.com/w320/br.png" },
     population: 203062512,
     region: "América do Sul",
-    currencies: { BRL: { name: "Brazilian real", symbol: "R$" } },
+    currencies: { BRL: { name: "Real brasileiro", symbol: "R$" } },
     languages: { por: "Português" },
   },
   {
@@ -26,7 +26,7 @@ const FALLBACK = [
     flags: { png: "https://flagcdn.com/w320/jp.png" },
     population: 125681593,
     region: "Ásia",
-    currencies: { JPY: { name: "Japanese yen", symbol: "¥" } },
+    currencies: { JPY: { name: "Iene japonês", symbol: "¥" } },
     languages: { jpn: "Japonês" },
   },
   {
@@ -46,7 +46,7 @@ const FALLBACK = [
     flags: { png: "https://flagcdn.com/w320/us.png" },
     population: 331002651,
     region: "América do Norte",
-    currencies: { USD: { name: "United States dollar", symbol: "$" } },
+    currencies: { USD: { name: "Dólar americano", symbol: "$" } },
     languages: { eng: "Inglês" },
   },
   {
@@ -56,7 +56,7 @@ const FALLBACK = [
     flags: { png: "https://flagcdn.com/w320/ar.png" },
     population: 45195774,
     region: "América do Sul",
-    currencies: { ARS: { name: "Argentine peso", symbol: "$" } },
+    currencies: { ARS: { name: "Peso argentino", symbol: "$" } },
     languages: { spa: "Espanhol" },
   },
   {
@@ -96,7 +96,7 @@ const FALLBACK = [
     flags: { png: "https://flagcdn.com/w320/mx.png" },
     population: 128932753,
     region: "América do Norte",
-    currencies: { MXN: { name: "Mexican peso", symbol: "$" } },
+    currencies: { MXN: { name: "Peso mexicano", symbol: "$" } },
     languages: { spa: "Espanhol" },
   },
   {
@@ -106,7 +106,7 @@ const FALLBACK = [
     flags: { png: "https://flagcdn.com/w320/cn.png" },
     population: 1402112000,
     region: "Ásia",
-    currencies: { CNY: { name: "Chinese yuan", symbol: "¥" } },
+    currencies: { CNY: { name: "Yuan chinês", symbol: "¥" } },
     languages: { zho: "Chinês" },
   },
   {
@@ -116,7 +116,7 @@ const FALLBACK = [
     flags: { png: "https://flagcdn.com/w320/au.png" },
     population: 25499884,
     region: "Oceania",
-    currencies: { AUD: { name: "Australian dollar", symbol: "$" } },
+    currencies: { AUD: { name: "Dólar australiano", symbol: "$" } },
     languages: { eng: "Inglês" },
   },
 ];
@@ -127,7 +127,7 @@ export async function getAllCountries() {
     const timeout = setTimeout(() => controller.abort(), 8000);
 
     const response = await fetch(
-      "https://restcountries.com/v3.1/all?fields=cca2,name,capital,flags,population,region,currencies,languages",
+      "https://servicodados.ibge.gov.br/api/v1/paises",
       { signal: controller.signal }
     );
 
@@ -135,24 +135,47 @@ export async function getAllCountries() {
 
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
-    const text = await response.text();
-    const trimmed = text.trim();
-    if (!trimmed.startsWith("[")) throw new Error("API não retornou um array");
+    const data = await response.json();
 
-    const data = JSON.parse(trimmed);
+    if (!Array.isArray(data)) throw new Error("API não retornou um array");
 
-    return data
-      .filter((c) => c.name && c.flags)
-      .map((c) => ({
-        cca2: c.cca2,
-        name: c.name,
-        capital: c.capital,
-        flags: c.flags,
-        population: c.population,
-        region: c.region,
-        currencies: c.currencies,
-        languages: c.languages,
-      }));
+    const paises = data
+      .map((p) => {
+        const codigo2 = p.id?.["ISO-3166-1-ALPHA-2"];
+        const nomePortugues = p.nome?.abreviado;
+
+        if (!codigo2 || !nomePortugues) return null;
+
+        return {
+          cca2: codigo2,
+          name: { common: nomePortugues },
+          capital: p.governo?.capital?.nome ? [p.governo.capital.nome] : [],
+          flags: {
+            png: `https://flagcdn.com/w320/${codigo2.toLowerCase()}.png`,
+          },
+          population: undefined,
+          region: p.regiao?.nome || "",
+          currencies: p["unidades-monetarias"]?.[0]
+            ? {
+                [p["unidades-monetarias"][0].id?.["ISO-4217-ALPHA"] || "N/A"]: {
+                  name: p["unidades-monetarias"][0].nome,
+                  symbol: "",
+                },
+              }
+            : undefined,
+          languages: Array.isArray(p.linguas) && p.linguas.length > 0
+            ? p.linguas.reduce((acc, l) => {
+                acc[l.id?.["ISO-639-1"] || l.nome] = l.nome;
+                return acc;
+              }, {})
+            : undefined,
+        };
+      })
+      .filter(Boolean);
+
+    if (paises.length === 0) throw new Error("Nenhum país processado");
+
+    return paises;
   } catch (error) {
     console.log("API indisponível, usando fallback:", error.message);
     return FALLBACK;
